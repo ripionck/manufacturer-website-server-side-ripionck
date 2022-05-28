@@ -58,19 +58,34 @@ async function run() {
       res.send(singleProduct);
     });
 
-    app.get("/user", verifyJWT, async (req, res) => {
+    app.get("/user", async (req, res) => {
       const users = await userCollection.find().toArray();
       res.send(users);
     });
 
-    app.put("/user/admin/:email", async (req, res) => {
+    app.get("/admin/:email", async (req, res) => {
       const email = req.params.email;
-      const filter = { email: email };
-      const updateDoc = {
-        $set: { role: "admin" },
-      };
-      const result = await userCollection.updateOne(filter, updateDoc);
-      res.send(result);
+      const user = await userCollection.findOne({ email: email });
+      const isAdmin = user.role === "admin";
+      res.send({ admin: isAdmin });
+    });
+
+    app.put("/user/admin/:email", verifyJWT, async (req, res) => {
+      const email = req.params.email;
+      const requester = req.decoded.email;
+      const requesterAccount = await userCollection.findOne({
+        email: requester,
+      });
+      if (requesterAccount.role === "admin") {
+        const filter = { email: email };
+        const updateDoc = {
+          $set: { role: "admin" },
+        };
+        const result = await userCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      } else {
+        res.status(403).send({ message: "Forbidden" });
+      }
     });
 
     app.put("/user/:email", async (req, res) => {
@@ -88,30 +103,42 @@ async function run() {
         { expiresIn: "7d" }
       );
 
-      res.send(result);
-    });
-
-    app.post("/order", verifyJWT, async (req, res) => {
-      const order = req.body;
-      const result = await orderCollection.insertOne(order);
-      res.send(result);
+      res.send({ result, token });
     });
 
     app.get("/order", verifyJWT, async (req, res) => {
-      const query = {};
-      const cursor = orderCollection.find(query);
-      const orders = await cursor.toArray();
-
-      res.send(orders);
+      const customer = req.query.customer;
+      const decodedEmail = req.decoded.email;
+      if (customer === decodedEmail) {
+        const query = { customer: customer };
+        const cursor = orderCollection.find(query);
+        const orders = await cursor.toArray();
+        res.send(orders);
+      } else {
+        return res.status(403).send({ message: "Forbidden Access" });
+      }
     });
 
-    app.delete("/order/:email", async (req, res) => {
+    app.post("/order", async (req, res) => {
+      const order = req.body;
+      const query = {
+        product: order.product,
+        customer: order.customer,
+        customerName: order.customerName,
+        phone: order.phone,
+        quantity: order.quantity,
+      };
+      const result = await orderCollection.insertOne(query);
+      res.send(result);
+    });
+
+    /*  app.delete("/order/:email", async (req, res) => {
       const id = req.params.email;
       const filter = { email: email };
       const result = await orderCollection.deleteOne(filter);
 
       res.send(result);
-    });
+    }); */
 
     console.log("Server is running");
   } finally {
