@@ -48,6 +48,7 @@ async function run() {
       .db("refrigerator_parts")
       .collection("payments");
 
+    //payment API
     app.post("/create-payment-intent", verifyJWT, async (req, res) => {
       const product = req.body;
       const price = product.price;
