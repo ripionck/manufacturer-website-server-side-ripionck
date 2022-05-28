@@ -5,6 +5,7 @@ const jwt = require("jsonwebtoken");
 const { ObjectID } = require("mongodb");
 require("dotenv").config();
 const app = express();
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const port = process.env.PORT || 5000;
 
 //middleware
@@ -43,6 +44,21 @@ async function run() {
       .db("refrigerator_parts")
       .collection("orders");
     const userCollection = client.db("refrigerator_parts").collection("users");
+    const paymentCollection = client
+      .db("refrigerator_parts")
+      .collection("payments");
+
+    app.post("/create-payment-intent", verifyJWT, async (req, res) => {
+      const product = req.body;
+      const price = product.price;
+      const amount = price * 100;
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+      res.send({ clientSecret: paymentIntent.client_secret });
+    });
 
     app.get("/product", async (req, res) => {
       const query = {};
@@ -119,10 +135,18 @@ async function run() {
       }
     });
 
+    app.get("/order/:id", verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: ObjectID(id) };
+      const order = await orderCollection.findOne(query);
+      res.send(order);
+    });
+
     app.post("/order", async (req, res) => {
       const order = req.body;
       const query = {
         product: order.product,
+        price: order.price,
         customer: order.customer,
         customerName: order.customerName,
         phone: order.phone,
@@ -132,13 +156,21 @@ async function run() {
       res.send(result);
     });
 
-    /*  app.delete("/order/:email", async (req, res) => {
-      const id = req.params.email;
-      const filter = { email: email };
-      const result = await orderCollection.deleteOne(filter);
+    app.patch("/order/:id", verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const payment = req.body;
+      const filter = { _id: ObjectID(id) };
+      const updatedDoc = {
+        $set: {
+          paid: true,
+          transactionId: payment.transactionId,
+        },
+      };
 
-      res.send(result);
-    }); */
+      const result = await paymentCollection.insertOne(payment);
+      const updatedOrder = await orderCollection.updateOne(filter, updatedDoc);
+      res.send(updatedOrder);
+    });
 
     console.log("Server is running");
   } finally {
